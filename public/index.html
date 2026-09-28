@@ -71,9 +71,20 @@
   select:focus-visible, input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .check { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--fg); margin-top: 6px; }
   .ganttHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 26px 0 10px; }
-  .exportBar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-  .exportBar button { font-size: 0.85rem; padding: 6px 11px; }
+  .ganttHeadBtns { display: flex; align-items: center; gap: 8px; }
   .ganttHead h2 { margin: 0; }
+  .exportMenu { position: relative; }
+  .exportList {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
+    background: var(--field); border: 1px solid var(--line); border-radius: 8px;
+    min-width: 170px; padding: 4px; display: flex; flex-direction: column; gap: 2px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  }
+  .exportList button {
+    text-align: left; border: none; background: transparent; padding: 8px 10px;
+    border-radius: 6px; font-size: 0.88rem;
+  }
+  .exportList button:hover { background: var(--card); }
   .toggle-order { display: inline-flex; align-items: center; gap: 7px; padding: 7px 13px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--fg); font: inherit; font-size: 0.85rem; cursor: pointer; }
   .toggle-order:hover { filter: brightness(0.96); }
   .toggle-order[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
@@ -173,31 +184,35 @@
     <div class="btns">
       <button id="add">Agregar proceso</button>
       <button id="run" class="primary">Simular</button>
-      <button id="share">Compartir este lote</button>
-      <input type="text" id="loadCode" placeholder="Código para cargar" style="width:150px">
-      <button id="loadBtn">Cargar</button>
     </div>
     <div id="err" role="alert"></div>
-    <div id="shareResult" class="note" style="margin-top:8px"></div>
   </section>
 
   <div class="ganttHead">
     <h2>Diagrama de Gantt</h2>
-    <button id="p1top" type="button" class="toggle-order" aria-pressed="false" title="Invertir el orden de las filas del diagrama">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7l4-4 4 4"/><path d="M8 17l4 4 4-4"/><path d="M12 3v18"/></svg>
-      <span id="p1topLabel">P1 abajo</span>
-    </button>
-  </div>
-  <div class="exportBar">
-    <button id="exportPng">Exportar PNG</button>
-    <button id="exportJpg">Exportar JPG</button>
-    <button id="exportPdf">Exportar PDF</button>
-    <button id="saveDrive">Guardar en Drive</button>
+    <div class="ganttHeadBtns">
+      <button id="p1top" type="button" class="toggle-order" aria-pressed="false" title="Invertir el orden de las filas del diagrama">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7l4-4 4 4"/><path d="M8 17l4 4 4-4"/><path d="M12 3v18"/></svg>
+        <span id="p1topLabel">P1 abajo</span>
+      </button>
+      <div class="exportMenu">
+        <button id="exportToggle" type="button" class="toggle-order" aria-haspopup="true" aria-expanded="false" title="Exportar el diagrama de Gantt">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+          <span>Exportar</span>
+        </button>
+        <div id="exportList" class="exportList" role="menu" hidden>
+          <button type="button" role="menuitem" id="exportPdf">Exportar en PDF</button>
+          <button type="button" role="menuitem" id="exportJpg">Exportar en JPG</button>
+          <button type="button" role="menuitem" id="exportPng">Exportar en PNG</button>
+        </div>
+      </div>
+    </div>
   </div>
   <div id="exportMsg" class="note" aria-live="polite"></div>
   <div id="gantt"></div>
   <div class="legend">
     <span><i class="sw" style="background:var(--cpu)"></i> usa la CPU</span>
+
     <span><b>R1</b> usa el recurso R1</span>
     <span><i class="sw" style="background:var(--arrival); width:3px"></i> llegada del proceso</span>
   </div>
@@ -225,7 +240,6 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const ALGOS = {
   'fcfs':    { key: 'fifo',  pre: false, q: false },
@@ -789,121 +803,30 @@ async function exportGanttPdf() {
   }
 }
 
-let appConfig = { googleClientId: null };
-fetch('/api/config').then(r => r.json()).then(c => { appConfig = c; }).catch(() => {});
-
-let tokenClient = null;
-function ensureTokenClient() {
-  if (tokenClient) return tokenClient;
-  if (!appConfig.googleClientId) return null;
-  if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) return null;
-  tokenClient = window.google.accounts.oauth2.initTokenClient({
-    client_id: appConfig.googleClientId,
-    scope: 'https://www.googleapis.com/auth/drive.file',
-    callback: () => {}
-  });
-  return tokenClient;
+function closeExportMenu() {
+  $('exportList').hidden = true;
+  $('exportToggle').setAttribute('aria-expanded', 'false');
 }
+$('exportToggle').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const open = !$('exportList').hidden;
+  if (open) { closeExportMenu(); return; }
+  $('exportList').hidden = false;
+  $('exportToggle').setAttribute('aria-expanded', 'true');
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.exportMenu')) closeExportMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeExportMenu(); });
 
-function getAccessToken() {
-  return new Promise((resolve, reject) => {
-    const client = ensureTokenClient();
-    if (!client) {
-      reject(new Error('Guardar en Drive no está configurado en este servidor: falta el Client ID de Google (ver README, sección Google Drive).'));
-      return;
-    }
-    client.callback = (resp) => {
-      if (resp.error) reject(new Error('No se pudo autorizar el acceso a Drive.'));
-      else resolve(resp.access_token);
-    };
-    client.requestAccessToken({ prompt: '' });
-  });
-}
+$('exportPdf').addEventListener('click', () => { closeExportMenu(); exportGanttPdf(); });
+$('exportJpg').addEventListener('click', () => { closeExportMenu(); exportGanttImage('jpg'); });
+$('exportPng').addEventListener('click', () => { closeExportMenu(); exportGanttImage('png'); });
 
-async function saveToDrive() {
-  const msg = $('exportMsg');
-  try {
-    msg.textContent = 'Preparando la imagen...';
-    const canvas = await renderGanttToCanvas(2);
-    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-    if (!blob) { msg.textContent = 'No se pudo generar la imagen.'; return; }
-    msg.textContent = 'Pidiendo autorización de Google...';
-    const token = await getAccessToken();
-    msg.textContent = 'Subiendo a Drive...';
-    const metadata = { name: 'diagrama-gantt.png', mimeType: 'image/png' };
-    const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-    form.append('file', blob);
-    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + token },
-      body: form
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error((data.error && data.error.message) || 'Google rechazó la subida.');
-    msg.innerHTML = 'Guardado en Drive: <a href="' + data.webViewLink + '" target="_blank" rel="noopener">abrir el archivo</a>';
-  } catch (e) {
-    msg.textContent = e.message;
-  }
-}
+DEFAULT_PROCS.forEach(addRow);
+$('algo').value = 'mlq-p';
+run();
 
-$('exportPng').addEventListener('click', () => exportGanttImage('png'));
-$('exportJpg').addEventListener('click', () => exportGanttImage('jpg'));
-$('exportPdf').addEventListener('click', exportGanttPdf);
-$('saveDrive').addEventListener('click', saveToDrive);
-
-async function shareLote() {
-  const el = $('shareResult');
-  let defs;
-  try { defs = readProcs(); } catch (e) { el.textContent = e.message; return; }
-  const procs = [...tbody.rows].map(tr => {
-    const [a, c, pr, io] = [...tr.querySelectorAll('input')].map(i => i.value);
-    return [parseInt(a, 10), parseInt(c, 10), parseInt(pr, 10), io];
-  });
-  const body = { procs, algo: $('algo').value, quantum: parseInt($('quantum').value, 10) || 1, aging: parseInt($('aging').value, 10) || 0 };
-  el.textContent = 'Guardando...';
-  try {
-    const res = await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const data = await res.json();
-    if (!res.ok) { el.textContent = data.error || 'No se pudo guardar el lote.'; return; }
-    const url = location.origin + location.pathname + '?code=' + data.code;
-    el.innerHTML = 'Código: <b>' + data.code + '</b> — <a href="' + url + '">' + url + '</a>';
-  } catch (e) {
-    el.textContent = 'No se pudo conectar con el servidor.';
-  }
-}
-
-async function loadLote(code) {
-  const el = $('shareResult');
-  if (!code) { el.textContent = 'Escribí un código para cargar.'; return; }
-  el.textContent = 'Buscando...';
-  try {
-    const res = await fetch('/api/share/' + encodeURIComponent(code));
-    const data = await res.json();
-    if (!res.ok) { el.textContent = data.error || 'No se encontró ese lote.'; return; }
-    tbody.innerHTML = '';
-    data.procs.forEach(addRow);
-    $('algo').value = data.algo;
-    $('quantum').value = data.quantum;
-    $('aging').value = data.aging;
-    el.textContent = 'Lote cargado.';
-    run();
-  } catch (e) {
-    el.textContent = 'No se pudo conectar con el servidor.';
-  }
-}
-
-$('share').addEventListener('click', shareLote);
-$('loadBtn').addEventListener('click', () => loadLote($('loadCode').value.trim()));
-
-const urlCode = new URLSearchParams(location.search).get('code');
-if (urlCode) {
-  loadLote(urlCode);
-} else {
-  DEFAULT_PROCS.forEach(addRow);
-  $('algo').value = 'mlq-p';
-  run();
-}
 </script>
 </body>
 </html>
