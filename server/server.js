@@ -7,7 +7,6 @@ const { nanoid } = require('nanoid');
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data', 'lotes.json');
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
-const JSPDF_FILE = path.join(__dirname, 'node_modules', 'jspdf', 'dist', 'jspdf.umd.min.js');
 
 function readStore() {
   try {
@@ -40,7 +39,6 @@ function isValidLote(body) {
 const app = express();
 app.use(express.json({ limit: '100kb' }));
 app.use(express.static(PUBLIC_DIR));
-app.get('/vendor/jspdf.umd.min.js', (req, res) => res.sendFile(JSPDF_FILE));
 
 // El Client ID de Google se configura en el servidor (variable de entorno
 // GOOGLE_CLIENT_ID) y el frontend lo pide acá. Así nadie tiene que pegarlo

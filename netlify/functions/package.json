@@ -1,0 +1,7 @@
+{
+  "name": "scheduler-sim-functions",
+  "private": true,
+  "dependencies": {
+    "@netlify/blobs": "^7.3.0"
+  }
+}
