@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simulador de planificación de CPU</title>
+<style>
+  :root {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    --bg: #ffffff;
+    --fg: #1b1b1b;
+    --muted: #6a6a6a;
+    --line: #cfcfcf;
+    --cpu: #b8b8b8;
+    --card: #f5f5f4;
+    --field: #ffffff;
+    --accent: #1f6feb;
+    --arrival: #2ea043;
+    --danger: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151515;
+      --fg: #ececec;
+      --muted: #a0a0a0;
+      --line: #3b3b3b;
+      --cpu: #707070;
+      --card: #1f1f1f;
+      --field: #181818;
+      --accent: #5aa2ff;
+      --arrival: #4cc26a;
+      --danger: #ff7a6b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #151515;
+    --fg: #ececec;
+    --muted: #a0a0a0;
+    --line: #3b3b3b;
+    --cpu: #707070;
+    --card: #1f1f1f;
+    --field: #181818;
+    --accent: #5aa2ff;
+    --arrival: #4cc26a;
+    --danger: #ff7a6b;
+  }
+  html, body { overflow-x: hidden; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  *, *::before, *::after { box-sizing: inherit; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.5;
+    font-size: 15px;
+  }
+  main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 48px; overflow-x: hidden; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; font-weight: 650; letter-spacing: -0.01em; }
+  h2 { font-size: 1.05rem; margin: 28px 0 10px; font-weight: 650; }
+  p.sub { margin: 0 0 20px; color: var(--muted); max-width: 62ch; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; min-width: 0; }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+  select, input[type="text"], input[type="number"] {
+    font: inherit; color: var(--fg); background: var(--field);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; min-width: 0; width: 100%;
+  }
+  select:focus-visible, input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--fg); margin-top: 6px; }
+  .ganttHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 26px 0 10px; }
+  .exportBar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .exportBar button { font-size: 0.85rem; padding: 6px 11px; }
+  .ganttHead h2 { margin: 0; }
+  .toggle-order { display: inline-flex; align-items: center; gap: 7px; padding: 7px 13px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--fg); font: inherit; font-size: 0.85rem; cursor: pointer; }
+  .toggle-order:hover { filter: brightness(0.96); }
+  .toggle-order[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .toggle-order svg { flex: none; }
+  .tablewrap { overflow-x: auto; margin-top: 14px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-weight: 600; font-size: 0.85rem; color: var(--muted); white-space: nowrap; }
+  td input[type="number"] { width: 78px; }
+  td input.io { width: 100%; min-width: 230px; }
+  .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  button {
+    font: inherit; cursor: pointer; border-radius: 6px; padding: 8px 14px;
+    border: 1px solid var(--line); background: var(--field); color: var(--fg);
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.del { padding: 4px 9px; color: var(--danger); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button:hover { filter: brightness(0.96); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; filter: none; }
+  .no-priority .prio-col { display: none; }
+  #err { color: var(--danger); margin-top: 10px; min-height: 1.2em; font-size: 0.9rem; }
+  #gantt { padding: 8px 0 4px; }
+  #gantt svg { display: block; }
+  .metrics td, .metrics th { text-align: right; }
+  .metrics td:first-child, .metrics th:first-child { text-align: left; }
+  .sumrow td { font-weight: 650; border-bottom: none; }
+  .seq { font-size: 0.9rem; color: var(--fg); line-height: 1.8; }
+  .note { color: var(--muted); font-size: 0.85rem; max-width: 80ch; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 0.85rem; color: var(--muted); margin-top: 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 14px; height: 14px; display: inline-block; }
+  .stepper { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0 12px; }
+  .stepper input[type="range"] { flex: 1; min-width: 180px; accent-color: var(--accent); }
+  #tlabel, #speedlabel { font-size: 0.9rem; color: var(--muted); min-width: 150px; }
+  .stepper label { font-size: 0.9rem; color: var(--muted); }
+  .state { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+  .qbox { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--card); }
+  .qbox h3 { margin: 0 0 8px; font-size: 0.9rem; font-weight: 650; }
+  .qbox .sub2 { font-size: 0.8rem; color: var(--muted); margin: 6px 0 4px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; min-height: 28px; align-items: center; }
+  .chip { border: 1px solid var(--fg); border-radius: 4px; padding: 2px 8px; font-size: 0.9rem; background: var(--field); }
+  .chip.run { background: var(--cpu); }
+  .empty { color: var(--muted); font-size: 0.85rem; }
+  .qt { width: auto; }
+  .qt th, .qt td { padding: 3px 7px; text-align: center; font-size: 0.8rem; border: 1px solid var(--line); white-space: nowrap; }
+  .qt th:first-child, .qt td:first-child { text-align: left; position: sticky; left: 0; background: var(--bg); font-weight: 600; }
+  .qt td.cur, .qt th.cur { background: color-mix(in srgb, var(--accent) 24%, var(--bg)); }
+  .flow { display: grid; grid-template-columns: 1.5fr 0.8fr 1.5fr; gap: 10px; }
+  @media (max-width: 760px) { .flow { grid-template-columns: 1fr; } }
+  .chip.use { background: var(--cpu); }
+  .chip.wait { border-style: dashed; }
+  .chip.new { animation: pop 0.5s ease-out; }
+  @keyframes pop { 0% { transform: scale(0.6); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .chip.new { animation: none; outline: 2px solid var(--accent); } }
+  .log { max-height: 250px; overflow: auto; font-size: 0.85rem; line-height: 1.55; margin-top: 10px; }
+  .log .tt { font-weight: 650; margin-top: 8px; color: var(--muted); }
+  .log ul { margin: 2px 0 0; padding-left: 18px; }
+  .log li { color: var(--muted); }
+  .log li.cur { color: var(--fg); }
+  .log .tt.cur { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Simulador de planificación de CPU</h1>
+  <section class="card" aria-label="Configuración">
+    <div class="controls">
+      <label class="f">Algoritmo
+        <select id="algo">
+          <option value="fcfs">FCFS</option>
+          <option value="sjf">SJF (sin apropiación)</option>
+          <option value="srtf">SRTF (SJF apropiativo)</option>
+          <option value="rr">Round Robin</option>
+          <option value="prio-np">Prioridades (sin apropiación)</option>
+          <option value="prio-p">Prioridades (con apropiación)</option>
+          <option value="mlq-np">Multinivel, RR en cada cola (sin apropiación)</option>
+          <option value="mlq-p">Multinivel, RR en cada cola (con apropiación)</option>
+        </select>
+      </label>
+      <label class="f" id="quantumField">Quantum
+        <input type="number" id="quantum" min="1" value="3">
+      </label>
+      <label class="f" id="agingField" title="Unidades esperando en la cola para subir de nivel (0 = sin aging)">Aging (0 = sin aging)
+        <input type="number" id="aging" min="0" value="0">
+      </label>
+    </div>
+
+    <div class="tablewrap">
+      <table id="tbl">
+        <thead>
+          <tr><th>Proceso</th><th>Llegada</th><th>CPU</th><th class="prio-col">Prioridad</th><th>E/S: (recurso, instante de CPU, duración)</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="btns">
+      <button id="add">Agregar proceso</button>
+      <button id="run" class="primary">Simular</button>
+      <button id="share">Compartir este lote</button>
+      <input type="text" id="loadCode" placeholder="Código para cargar" style="width:150px">
+      <button id="loadBtn">Cargar</button>
+    </div>
+    <div id="err" role="alert"></div>
+    <div id="shareResult" class="note" style="margin-top:8px"></div>
+  </section>
+
+  <div class="ganttHead">
+    <h2>Diagrama de Gantt</h2>
+    <button id="p1top" type="button" class="toggle-order" aria-pressed="false" title="Invertir el orden de las filas del diagrama">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7l4-4 4 4"/><path d="M8 17l4 4 4-4"/><path d="M12 3v18"/></svg>
+      <span id="p1topLabel">P1 abajo</span>
+    </button>
+  </div>
+  <div class="exportBar">
+    <button id="exportPng">Exportar PNG</button>
+    <button id="exportJpg">Exportar JPG</button>
+    <button id="exportPdf">Exportar PDF</button>
+    <button id="saveDrive">Guardar en Drive</button>
+  </div>
+  <div id="exportMsg" class="note" aria-live="polite"></div>
+  <div id="gantt"></div>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--cpu)"></i> usa la CPU</span>
+    <span><b>R1</b> usa el recurso R1</span>
+    <span><i class="sw" style="background:var(--arrival); width:3px"></i> llegada del proceso</span>
+  </div>
+
+  <h2>Colas instante por instante</h2>
+  <div class="stepper">
+    <button id="prev">Anterior</button>
+    <button id="play">Reproducir</button>
+    <button id="next">Siguiente</button>
+    <input type="range" id="slider" min="0" max="0" value="0" aria-label="Instante de tiempo">
+    <span id="tlabel"></span>
+  </div>
+  <div class="stepper">
+    <label for="speed">Velocidad</label>
+    <input type="range" id="speed" min="0.5" max="10" step="0.5" value="1.5" aria-label="Velocidad de reproducción">
+    <span id="speedlabel"></span>
+  </div>
+  <div id="state" class="state"></div>
+  <div class="tablewrap"><table class="qt" id="qtable"></table></div>
+
+  <h2>Tiempos</h2>
+  <div class="tablewrap">
+    <table class="metrics" id="metrics"></table>
+  </div>
+</main>
+
+<script src="/vendor/jspdf.umd.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+const ALGOS = {
+  'fcfs':    { key: 'fifo',  pre: false, q: false },
+  'sjf':     { key: 'burst', pre: false, q: false },
+  'srtf':    { key: 'burst', pre: true,  q: false },
+  'rr':      { key: 'fifo',  pre: false, q: true  },
+  'prio-np': { key: 'prio',  pre: false, q: false },
+  'prio-p':  { key: 'prio',  pre: true,  q: false },
+  'mlq-np':  { key: 'prio',  pre: false, q: true  },
+  'mlq-p':   { key: 'prio',  pre: true,  q: true  }
+};
+
+const DEFAULT_PROCS = [
+  [0, 9, 1, '(R1,4,2) (R2,6,3) (R1,8,3)'],
+  [1, 5, 2, '(R3,3,2) (R3,4,2)'],
+  [2, 5, 3, '(R1,4,1)'],
+  [3, 7, 2, '(R2,1,2) (R2,5,3)'],
+  [5, 5, 1, '(R1,2,3) (R3,4,3)']
+];
+
+const $ = id => document.getElementById(id);
+const tbody = $('tbl').querySelector('tbody');
+
+function renumber() {
+  [...tbody.rows].forEach((tr, i) => { tr.cells[0].textContent = 'P' + (i + 1); });
+}
+function addRow(v) {
+  const vals = v || [0, 1, 1, ''];
+  const tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td></td>' +
+    '<td><input type="number" min="0" value="' + vals[0] + '" aria-label="Llegada"></td>' +
+    '<td><input type="number" min="1" value="' + vals[1] + '" aria-label="CPU"></td>' +
+    '<td class="prio-col"><input type="number" min="1" value="' + vals[2] + '" aria-label="Prioridad"></td>' +
+    '<td><input type="text" class="io" value="' + vals[3] + '" placeholder="(R1,4,2) (R2,6,3)" aria-label="Operaciones de E/S"></td>' +
+    '<td><button class="del" title="Quitar proceso" aria-label="Quitar proceso">Quitar</button></td>';
+  tr.querySelector('.del').addEventListener('click', () => {
+    if (tbody.rows.length > 1) { tr.remove(); renumber(); run(); }
+  });
+  tr.querySelectorAll('input').forEach(i => i.addEventListener('input', run));
+  tbody.appendChild(tr);
+  renumber();
+}
+
+function parseIO(s) {
+  const out = [];
+  const re = /\(?\s*([A-Za-z]\w*)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)?/g;
+  let m;
+  while ((m = re.exec(s))) out.push({ res: m[1].toUpperCase(), at: +m[2], dur: Math.max(1, +m[3]) });
+  out.sort((a, b) => a.at - b.at);
+  return out;
+}
+
+function readProcs() {
+  const defs = [];
+  for (const tr of tbody.rows) {
+    const [a, c, p, io] = [...tr.querySelectorAll('input')].map(i => i.value);
+    const arrival = parseInt(a, 10), cpu = parseInt(c, 10), prio = parseInt(p, 10);
+    if (isNaN(arrival) || arrival < 0) throw new Error('La llegada de ' + tr.cells[0].textContent + ' tiene que ser un número mayor o igual a 0.');
+    if (isNaN(cpu) || cpu < 1) throw new Error('La CPU de ' + tr.cells[0].textContent + ' tiene que ser un número mayor a 0.');
+    if (isNaN(prio) || prio < 1) throw new Error('La prioridad de ' + tr.cells[0].textContent + ' tiene que ser un número mayor a 0.');
+    const ios = parseIO(io);
+    if (io.trim() && !ios.length) throw new Error('No pude leer la E/S de ' + tr.cells[0].textContent + '. Usá el formato (R1,4,2) (R2,6,3).');
+    for (const o of ios) {
+      if (o.at < 1 || o.at >= cpu) throw new Error('En ' + tr.cells[0].textContent + ', el instante de E/S ' + o.at + ' tiene que estar entre 1 y ' + (cpu - 1) + ' unidades de CPU.');
+    }
+    defs.push({ arrival, cpu, prio, io: ios });
+  }
+  return defs;
+}
+
+function simulate(defs, algoKey, q, tie, aging) {
+  const A = ALGOS[algoKey];
+  const P = defs.map((d, i) => ({
+    id: i + 1, arrival: d.arrival, cpu: d.cpu, prio: d.prio, eff: d.prio, ageWait: 0, io: d.io,
+    done: 0, ioIdx: 0, fin: null, wait: 0
+  }));
+  const res = {};
+  P.forEach(p => p.io.forEach(o => { if (!res[o.res]) res[o.res] = { cur: null, end: 0, queue: [] }; }));
+  const ready = [];
+  let running = null, qUsed = 0, pendingBack = null, pendingIO = null;
+  const cpuTL = [];
+  const snaps = [];
+  const logs = [];
+  const ev = (tt, txt) => { (logs[tt] = logs[tt] || []).push(txt); };
+  const trs = [];
+  const tr = (tt, type, id) => { (trs[tt] = trs[tt] || []).push({ type, id }); };
+  const ioTL = P.map(() => []);
+  const burstRem = p => (p.ioIdx < p.io.length ? p.io[p.ioIdx].at : p.cpu) - p.done;
+  const keyOf = p => A.key === 'prio' ? p.eff : (A.key === 'burst' ? burstRem(p) : 0);
+  const bestIdx = () => {
+    if (A.key === 'fifo') return 0;
+    let bi = 0;
+    for (let i = 1; i < ready.length; i++) if (keyOf(ready[i]) < keyOf(ready[bi])) bi = i;
+    return bi;
+  };
+  const enq = p => { p.eff = p.prio; p.ageWait = 0; ready.push(p); };
+  const startRes = (r, t) => { const it = r.queue.shift(); r.cur = it.p; r.end = t + it.dur; };
+
+  let t = 0;
+  while (t < 2000 && P.some(p => p.fin === null)) {
+    const returning = [];
+    for (const n in res) {
+      const r = res[n];
+      if (r.cur && r.end === t) { r.cur.lastRes = n; returning.push(r.cur); r.cur = null; }
+    }
+    for (const n in res) {
+      const r = res[n];
+      if (!r.cur && r.queue.length) { startRes(r, t); ev(t, n + ' queda libre y empieza a atender a P' + r.cur.id); }
+    }
+    if (pendingIO) {
+      const r = res[pendingIO.o.res];
+      const rn = pendingIO.o.res;
+      tr(t, 'wait', pendingIO.p.id);
+      ev(t, 'P' + pendingIO.p.id + ' solicita ' + rn + ' (dura ' + pendingIO.o.dur + ') y pasa a Waiting; ' +
+        (r.cur ? rn + ' está ocupado por P' + r.cur.id + ', así que espera en su cola' : rn + ' está libre y lo usa de inmediato'));
+      r.queue.push({ p: pendingIO.p, dur: pendingIO.o.dur });
+      if (!r.cur) startRes(r, t);
+      pendingIO = null;
+    }
+    const arrivals = P.filter(p => p.arrival === t);
+    let batch;
+    if (tie === 'io') batch = [...returning, ...arrivals];
+    else if (tie === 'new') batch = [...arrivals, ...returning];
+    else batch = [...returning, ...arrivals].sort((a, b) => a.arrival - b.arrival || a.id - b.id);
+    batch.forEach(p => {
+      ev(t, returning.includes(p) ? 'P' + p.id + ' termina su E/S en ' + p.lastRes + ' y vuelve a Listos' : 'P' + p.id + ' llega y se encola en Listos');
+      tr(t, returning.includes(p) ? 'complete' : 'admit', p.id);
+      enq(p);
+    });
+    if (pendingBack) { ev(t, 'P' + pendingBack.id + ' agota su quantum y vuelve al final de Listos'); tr(t, 'interrupt', pendingBack.id); enq(pendingBack); pendingBack = null; }
+
+    if (running && A.pre && ready.length) {
+      const bi = bestIdx();
+      if (keyOf(ready[bi]) < keyOf(running)) {
+        const nxt = ready.splice(bi, 1)[0];
+        ev(t, 'P' + nxt.id + ' tiene mejor ' + (A.key === 'prio' ? 'prioridad' : 'tiempo restante') + ' y apropia la CPU; P' + running.id + ' vuelve al final de Listos');
+        tr(t, 'interrupt', running.id);
+        tr(t, 'dispatch', nxt.id);
+        enq(running);
+        running = nxt;
+        qUsed = 0;
+      }
+    }
+    if (!running && ready.length) {
+      running = ready.splice(bestIdx(), 1)[0];
+      qUsed = 0;
+      ev(t, 'P' + running.id + ' pasa a la CPU');
+      tr(t, 'dispatch', running.id);
+    }
+
+    for (const n in res) {
+      const r = res[n];
+      if (r.cur) ioTL[r.cur.id - 1][t] = n;
+    }
+    cpuTL[t] = running ? running.id : 0;
+    const snapRes = {};
+    for (const n in res) snapRes[n] = { cur: res[n].cur ? res[n].cur.id : 0, q: res[n].queue.map(it => it.p.id) };
+    snaps[t] = { run: running ? running.id : 0, ready: ready.map(p => p.id), effs: P.map(p => p.eff), res: snapRes };
+    ready.forEach(p => p.wait++);
+
+    if (running) {
+      const p = running;
+      p.done++; qUsed++;
+      if (p.done === p.cpu) { p.fin = t + 1; running = null; ev(t + 1, 'P' + p.id + ' termina'); tr(t + 1, 'exit', p.id); }
+      else if (p.ioIdx < p.io.length && p.done === p.io[p.ioIdx].at) {
+        pendingIO = { p, o: p.io[p.ioIdx] };
+        p.ioIdx++;
+        running = null;
+      } else if (A.q && qUsed >= q) { pendingBack = p; running = null; }
+    }
+    if (A.key === 'prio' && aging > 0) {
+      ready.slice().forEach(p => {
+        p.ageWait++;
+        if (p.ageWait >= aging && p.eff > 1) {
+          p.eff--;
+          p.ageWait = 0;
+          ready.splice(ready.indexOf(p), 1);
+          ready.push(p);
+          ev(t + 1, 'P' + p.id + ' lleva ' + aging + ' unidades esperando y sube a la cola de prioridad ' + p.eff + ' (su cola original es la ' + p.prio + ')');
+          tr(t + 1, 'age', p.id);
+        }
+      });
+    }
+    t++;
+  }
+  const emptyRes = {};
+  Object.keys(res).forEach(n => { emptyRes[n] = { cur: 0, q: [] }; });
+  snaps[t] = { run: 0, ready: [], effs: P.map(p => p.prio), res: emptyRes };
+  return { P, cpuTL, ioTL, snaps, logs, trs, resNames: Object.keys(res).sort(), T: t, ok: P.every(p => p.fin !== null) };
+}
+
+function renderGantt(sim, p1top) {
+  const { P, cpuTL, ioTL, T } = sim;
+  const cw = 30, rh = 36, lw = 44, top = 8;
+  const W = lw + T * cw + 24, H = top + P.length * rh + 44;
+  const order = P.map((_, i) => i);
+  if (!p1top) order.reverse();
+  let s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Diagrama de Gantt">';
+  order.forEach((pi, row) => {
+    const y = top + row * rh;
+    s += '<text x="4" y="' + (y + rh / 2) + '" dominant-baseline="central" font-size="14" font-weight="600" fill="var(--fg)">P' + (pi + 1) + '</text>';
+    for (let t = 0; t < T; t++) {
+      const x = lw + t * cw;
+      if (cpuTL[t] === pi + 1) s += '<rect x="' + x + '" y="' + y + '" width="' + cw + '" height="' + rh + '" fill="var(--cpu)"/>';
+      else if (ioTL[pi][t]) s += '<text x="' + (x + cw / 2) + '" y="' + (y + rh / 2) + '" text-anchor="middle" dominant-baseline="central" font-size="11" fill="var(--fg)">' + ioTL[pi][t] + '</text>';
+    }
+    s += '<line x1="' + lw + '" y1="' + y + '" x2="' + (lw + T * cw) + '" y2="' + y + '" stroke="var(--line)" stroke-width="1"/>';
+  });
+  const yb = top + P.length * rh;
+  s += '<line x1="' + lw + '" y1="' + yb + '" x2="' + (lw + T * cw) + '" y2="' + yb + '" stroke="var(--line)" stroke-width="1"/>';
+  for (let t = 0; t <= T; t++) {
+    const x = lw + t * cw;
+    s += '<line x1="' + x + '" y1="' + top + '" x2="' + x + '" y2="' + (yb + 5) + '" stroke="var(--line)" stroke-width="1"/>';
+    s += '<text x="' + x + '" y="' + (yb + 20) + '" text-anchor="middle" font-size="11" fill="var(--muted)">' + t + '</text>';
+  }
+  order.forEach((pi, row) => {
+    const p = P[pi];
+    if (p.arrival <= T) {
+      const x = lw + p.arrival * cw, y = top + row * rh;
+      s += '<line x1="' + x + '" y1="' + y + '" x2="' + x + '" y2="' + (y + rh) + '" stroke="var(--arrival)" stroke-width="3"/>';
+    }
+  });
+  s += '<text x="' + (lw + T * cw + 4) + '" y="' + (yb + 20) + '" font-size="12" fill="var(--muted)">CPU</text>';
+  s += '<rect id="cursor" x="' + lw + '" y="' + top + '" width="' + cw + '" height="' + (P.length * rh) + '" fill="none" stroke="var(--accent)" stroke-width="2"/>';
+  s += '</svg>';
+  $('gantt').innerHTML = s;
+  return { lw, cw };
+}
+
+function fmt(x) { return (Math.round(x * 100) / 100).toString().replace('.', ','); }
+
+function renderMetrics(sim) {
+  const { P } = sim;
+  let h = '<thead><tr><th>Proceso</th><th>Llegada</th><th>CPU</th><th>Finalización</th><th>TR</th><th>TE</th></tr></thead><tbody>';
+  let sumTR = 0, sumTE = 0;
+  P.forEach(p => {
+    const tr = p.fin - p.arrival;
+    sumTR += tr; sumTE += p.wait;
+    h += '<tr><td>P' + p.id + '</td><td>' + p.arrival + '</td><td>' + p.cpu + '</td><td>' + p.fin + '</td><td>' + tr + '</td><td>' + p.wait + '</td></tr>';
+  });
+  h += '<tr class="sumrow"><td>Promedio</td><td></td><td></td><td></td><td>TPR = ' + fmt(sumTR / P.length) + '</td><td>TPE = ' + fmt(sumTE / P.length) + '</td></tr></tbody>';
+  $('metrics').innerHTML = h;
+}
+
+let curSim = null, curT = 0, curAlgo = 'fcfs', geom = null, timer = null;
+
+function chipHTML(sim, id, cls, text) {
+  const showPrio = ALGOS[curAlgo].key === 'prio';
+  const p = sim.P[id - 1];
+  const label = text || ('P' + id + (showPrio ? ' (prio ' + p.prio + ')' : ''));
+  return '<span class="chip ' + (cls || '') + '">' + label + '</span>';
+}
+
+function waitingItems(sn, resNames) {
+  const items = [];
+  resNames.forEach(n => {
+    const r = sn.res[n];
+    if (!r) return;
+    if (r.cur) items.push({ id: r.cur, n, kind: 'use', key: r.cur + n + 'use' });
+    r.q.forEach(id => items.push({ id, n, kind: 'wait', key: id + n + 'wait' }));
+  });
+  return items;
+}
+
+const ARROWS = [
+  { type: 'admit',     label: 'admitted',           d: 'M 192 92 Q 265 98 262 225',      lx: 232, ly: 82,  an: 'start' },
+  { type: 'interrupt', label: 'interrupt',          d: 'M 628 244 Q 470 130 326 233',    lx: 474, ly: 166, an: 'middle' },
+  { type: 'exit',      label: 'exit',               d: 'M 730 251 Q 745 170 785 142',    lx: 772, ly: 200, an: 'start' },
+  { type: 'dispatch',  label: 'scheduler dispatch', d: 'M 330 368 Q 470 430 612 355',    lx: 470, ly: 424, an: 'middle' },
+  { type: 'wait',      label: 'I/O or event wait',  d: 'M 700 358 Q 690 440 583 457',    lx: 702, ly: 424, an: 'start' },
+  { type: 'complete',  label: 'I/O or event completion', d: 'M 340 457 Q 225 440 218 374', lx: 205, ly: 444, an: 'end' }
+];
+const NODES = {
+  new:        { cx: 110, cy: 90,  rx: 85,  ry: 50 },
+  terminated: { cx: 790, cy: 90,  rx: 100, ry: 50 },
+  ready:      { cx: 260, cy: 300, rx: 160, ry: 75 },
+  running:    { cx: 660, cy: 300, rx: 120, ry: 60 },
+  waiting:    { cx: 460, cy: 500, rx: 190, ry: 55 }
+};
+
+function svgChips(items, nd, hotIds) {
+  const h = 22, gap = 6, maxW = nd.rx * 1.55;
+  const widths = items.map(i => Math.max(34, i.text.length * 7 + 14));
+  const rows = [];
+  let cur = [], curW = 0;
+  items.forEach((it, i) => {
+    const add = widths[i] + (cur.length ? gap : 0);
+    if (cur.length && curW + add > maxW) { rows.push({ idx: cur, w: curW }); cur = []; curW = 0; }
+    curW += widths[i] + (cur.length ? gap : 0);
+    cur.push(i);
+  });
+  if (cur.length) rows.push({ idx: cur, w: curW });
+  const totalH = rows.length * (h + 6) - 6;
+  let y = nd.cy + 12 - totalH / 2;
+  let out = '';
+  rows.forEach(r => {
+    let x = nd.cx - r.w / 2;
+    r.idx.forEach(i => {
+      const it = items[i], hot = hotIds.has(it.id);
+      const fill = it.kind === 'use' ? 'var(--cpu)' : 'var(--field)';
+      out += '<rect x="' + x + '" y="' + y + '" width="' + widths[i] + '" height="' + h + '" rx="4" fill="' + fill + '" stroke="' + (hot ? 'var(--accent)' : 'var(--fg)') + '" stroke-width="' + (hot ? 2.5 : 1) + '"' + (it.kind === 'wait' ? ' stroke-dasharray="4 3"' : '') + '/>';
+      out += '<text x="' + (x + widths[i] / 2) + '" y="' + (y + h / 2) + '" text-anchor="middle" dominant-baseline="central" font-size="12" fill="var(--fg)">' + it.text + '</text>';
+      x += widths[i] + gap;
+    });
+    y += h + 6;
+  });
+  return out;
+}
+
+function stateDiagram(sim, sn, t) {
+  const showPrio = ALGOS[curAlgo].key === 'prio';
+  const lab = id => {
+    if (!showPrio) return 'P' + id;
+    const pr = sim.P[id - 1].prio, ef = sn.effs ? sn.effs[id - 1] : pr;
+    return 'P' + id + ' (' + (ef !== pr ? pr + '→' + ef : pr) + ')';
+  };
+  const trNow = sim.trs[t] || [];
+  const hotIds = new Set(trNow.map(x => x.id));
+  const byType = {};
+  trNow.forEach(x => { (byType[x.type] = byType[x.type] || []).push(x.id); });
+
+  const lists = {
+    new: sim.P.filter(p => p.arrival > t).map(p => ({ id: p.id, text: 'P' + p.id })),
+    ready: sn.ready.map(id => ({ id, text: lab(id) })),
+    running: sn.run ? [{ id: sn.run, text: lab(sn.run), kind: 'use' }] : [],
+    waiting: waitingItems(sn, sim.resNames).map(i => ({ id: i.id, text: 'P' + i.id + ' ' + i.n, kind: i.kind })),
+    terminated: sim.P.filter(p => p.fin !== null && p.fin <= t).map(p => ({ id: p.id, text: 'P' + p.id }))
+  };
+
+  let g = '<svg viewBox="0 0 900 580" width="100%" role="img" aria-label="Diagrama de estados de los procesos en el instante ' + t + '" style="max-width:900px">';
+  g += '<defs>' +
+    '<marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/></marker>' +
+    '<marker id="ahh" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>' +
+    '</defs>';
+
+  ARROWS.forEach(a => {
+    const ids = byType[a.type];
+    const hot = !!ids;
+    g += '<path d="' + a.d + '" fill="none" stroke="' + (hot ? 'var(--accent)' : 'var(--muted)') + '" stroke-width="' + (hot ? 3 : 1.5) + '" marker-end="url(#' + (hot ? 'ahh' : 'ah') + ')"/>';
+    g += '<text x="' + a.lx + '" y="' + a.ly + '" text-anchor="' + a.an + '" font-size="13" ' + (hot ? 'font-weight="700" fill="var(--accent)"' : 'fill="var(--muted)"') + '>' +
+      a.label + (hot ? ': ' + ids.map(i => 'P' + i).join(', ') : '') + '</text>';
+  });
+
+  Object.keys(NODES).forEach(k => {
+    const nd = NODES[k];
+    g += '<ellipse cx="' + nd.cx + '" cy="' + nd.cy + '" rx="' + nd.rx + '" ry="' + nd.ry + '" fill="var(--card)" stroke="var(--line)" stroke-width="1.5"/>';
+    g += '<text x="' + nd.cx + '" y="' + (nd.cy - nd.ry + 17) + '" text-anchor="middle" font-size="13" font-weight="650" fill="var(--muted)">' + k + '</text>';
+    g += svgChips(lists[k], nd, hotIds);
+  });
+  g += '</svg>';
+  return g;
+}
+
+function renderState() {
+  if (!curSim) return;
+  const sim = curSim, sn = sim.snaps[curT];
+  let h = '<div style="overflow-x:auto">' + stateDiagram(sim, sn, curT) + '</div>';
+
+  let lg = '';
+  for (let tt = 0; tt <= curT; tt++) {
+    const evs = sim.logs[tt];
+    if (!evs || !evs.length) continue;
+    lg += '<div class="tt' + (tt === curT ? ' cur' : '') + '">Instante ' + tt + '</div><ul>' +
+      evs.map(e => '<li class="' + (tt === curT ? 'cur' : '') + '">' + e + '</li>').join('') + '</ul>';
+  }
+  h += '<div class="qbox" style="margin-top:10px"><h3>Qué fue pasando</h3><div class="log" id="log">' +
+    (lg || '<span class="empty">Todavía no pasó nada.</span>') + '</div></div>';
+  $('state').innerHTML = h;
+  const lgEl = document.getElementById('log');
+  if (lgEl) lgEl.scrollTop = lgEl.scrollHeight;
+}
+
+function renderQTable() {
+  const sim = curSim, T = sim.T;
+  const cell = (ids, t) => '<td data-t="' + t + '">' + (ids.length ? ids.map(i => 'P' + i).join(' ') : '–') + '</td>';
+  let h = '<thead><tr><th>Instante</th>';
+  for (let t = 0; t < T; t++) h += '<th data-t="' + t + '">' + t + '</th>';
+  h += '</tr></thead><tbody>';
+  h += '<tr><td>En CPU</td>' + sim.snaps.slice(0, T).map((s, t) => cell(s.run ? [s.run] : [], t)).join('') + '</tr>';
+  h += '<tr><td>Listos</td>' + sim.snaps.slice(0, T).map((s, t) => cell(s.ready, t)).join('') + '</tr>';
+  sim.resNames.forEach(n => {
+    h += '<tr><td>' + n + ' usa</td>' + sim.snaps.slice(0, T).map((s, t) => cell(s.res[n].cur ? [s.res[n].cur] : [], t)).join('') + '</tr>';
+    h += '<tr><td>' + n + ' espera</td>' + sim.snaps.slice(0, T).map((s, t) => cell(s.res[n].q, t)).join('') + '</tr>';
+  });
+  h += '</tbody>';
+  $('qtable').innerHTML = h;
+}
+
+function setT(t) {
+  if (!curSim) return;
+  curT = Math.max(0, Math.min(curSim.T, t));
+  $('slider').value = curT;
+  $('tlabel').textContent = 'Instante ' + curT + (curT === curSim.T ? ' (fin)' : ' de ' + curSim.T);
+  const c = document.getElementById('cursor');
+  if (c && geom) { c.setAttribute('x', geom.lw + curT * geom.cw); c.setAttribute('opacity', curT === curSim.T ? 0 : 1); }
+  renderState();
+  document.querySelectorAll('#qtable [data-t]').forEach(el => el.classList.toggle('cur', +el.dataset.t === curT));
+  $('prev').disabled = curT === 0;
+  $('next').disabled = curT === curSim.T;
+}
+
+function speedValue() { return parseFloat($('speed').value) || 1.5; }
+function updateSpeedLabel() {
+  const v = speedValue();
+  $('speedlabel').textContent = String(v).replace('.', ',') + (v === 1 ? ' instante por segundo' : ' instantes por segundo');
+}
+function stopPlay() {
+  if (timer) { clearInterval(timer); timer = null; }
+  $('play').textContent = 'Reproducir';
+}
+function startTimer() {
+  if (timer) clearInterval(timer);
+  timer = setInterval(() => {
+    if (curT >= curSim.T) { stopPlay(); return; }
+    setT(curT + 1);
+    if (curT >= curSim.T) stopPlay();
+  }, 1000 / speedValue());
+}
+function togglePlay() {
+  if (timer) { stopPlay(); return; }
+  if (curT >= curSim.T) setT(0);
+  $('play').textContent = 'Pausar';
+  startTimer();
+}
+
+function updateFieldVisibility() {
+  const A = ALGOS[$('algo').value];
+  $('quantumField').style.display = A.q ? '' : 'none';
+  $('agingField').style.display = A.key === 'prio' ? '' : 'none';
+  document.body.classList.toggle('no-priority', A.key !== 'prio');
+}
+
+function run() {
+  updateFieldVisibility();
+  $('err').textContent = '';
+  let defs;
+  try { defs = readProcs(); } catch (e) { $('err').textContent = e.message; return; }
+  const q = Math.max(1, parseInt($('quantum').value, 10) || 1);
+  const algo = $('algo').value;
+  const aging = Math.max(0, parseInt($('aging').value, 10) || 0);
+  const sim = simulate(defs, algo, q, 'seniority', aging);
+  if (!sim.ok) { $('err').textContent = 'La simulación no terminó. Revisá los datos de entrada.'; return; }
+  stopPlay();
+  curSim = sim;
+  curAlgo = algo;
+  geom = renderGantt(sim, $('p1top').getAttribute('aria-pressed') === 'true');
+  $('slider').max = sim.T;
+  renderQTable();
+  setT(Math.min(curT, sim.T));
+  renderMetrics(sim);
+}
+
+$('algo').addEventListener('change', run);
+$('quantum').addEventListener('input', run);
+$('aging').addEventListener('input', run);
+$('p1top').addEventListener('click', () => {
+  const btn = $('p1top');
+  const on = btn.getAttribute('aria-pressed') === 'true';
+  btn.setAttribute('aria-pressed', String(!on));
+  $('p1topLabel').textContent = !on ? 'P1 arriba' : 'P1 abajo';
+  run();
+});
+$('add').addEventListener('click', () => { addRow(); run(); });
+$('run').addEventListener('click', run);
+$('prev').addEventListener('click', () => { stopPlay(); setT(curT - 1); });
+$('next').addEventListener('click', () => { stopPlay(); setT(curT + 1); });
+$('play').addEventListener('click', togglePlay);
+$('speed').addEventListener('input', () => { updateSpeedLabel(); if (timer) startTimer(); });
+updateSpeedLabel();
+$('slider').addEventListener('input', e => { stopPlay(); setT(+e.target.value); });
+function svgWithResolvedColors(svgEl) {
+  const clone = svgEl.cloneNode(true);
+  const origAll = svgEl.querySelectorAll('*');
+  const cloneAll = clone.querySelectorAll('*');
+  origAll.forEach((orig, i) => {
+    const dest = cloneAll[i];
+    const cs = getComputedStyle(orig);
+    ['fill', 'stroke'].forEach(prop => {
+      const val = orig.getAttribute(prop);
+      if (val && val.indexOf('var(') !== -1) dest.setAttribute(prop, cs[prop]);
+    });
+  });
+  return clone;
+}
+
+function svgToDataUrl(svgEl) {
+  const xml = new XMLSerializer().serializeToString(svgEl);
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+}
+
+function renderGanttToCanvas(scale) {
+  return new Promise((resolve, reject) => {
+    const svgEl = document.querySelector('#gantt svg');
+    if (!svgEl) { reject(new Error('Generá el diagrama primero (botón Simular).')); return; }
+    const w = parseFloat(svgEl.getAttribute('width'));
+    const h = parseFloat(svgEl.getAttribute('height'));
+    const clone = svgWithResolvedColors(svgEl);
+    const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#ffffff';
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas);
+    };
+    img.onerror = () => reject(new Error('No se pudo convertir el diagrama a imagen.'));
+    img.src = svgToDataUrl(clone);
+  });
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+async function exportGanttImage(format) {
+  const msg = $('exportMsg');
+  try {
+    msg.textContent = 'Generando ' + format.toUpperCase() + '...';
+    const canvas = await renderGanttToCanvas(2);
+    const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
+    canvas.toBlob(blob => {
+      if (!blob) { msg.textContent = 'No se pudo generar el archivo.'; return; }
+      downloadBlob(blob, 'diagrama-gantt.' + format);
+      msg.textContent = '';
+    }, mime, 0.95);
+  } catch (e) {
+    msg.textContent = e.message;
+  }
+}
+
+async function exportGanttPdf() {
+  const msg = $('exportMsg');
+  try {
+    if (!window.jspdf) { msg.textContent = 'No se pudo cargar la librería de PDF.'; return; }
+    msg.textContent = 'Generando PDF...';
+    const canvas = await renderGanttToCanvas(2);
+    const { jsPDF } = window.jspdf;
+    const orientation = canvas.width >= canvas.height ? 'l' : 'p';
+    const pdf = new jsPDF({ orientation, unit: 'pt', format: 'a4' });
+    const pageW = pdf.internal.pageSize.getWidth() - 40;
+    const pageH = pdf.internal.pageSize.getHeight() - 40;
+    const ratio = Math.min(pageW / canvas.width, pageH / canvas.height, 1);
+    const w = canvas.width * ratio, h = canvas.height * ratio;
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 20, 20, w, h);
+    pdf.save('diagrama-gantt.pdf');
+    msg.textContent = '';
+  } catch (e) {
+    msg.textContent = e.message;
+  }
+}
+
+let appConfig = { googleClientId: null };
+fetch('/api/config').then(r => r.json()).then(c => { appConfig = c; }).catch(() => {});
+
+let tokenClient = null;
+function ensureTokenClient() {
+  if (tokenClient) return tokenClient;
+  if (!appConfig.googleClientId) return null;
+  if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) return null;
+  tokenClient = window.google.accounts.oauth2.initTokenClient({
+    client_id: appConfig.googleClientId,
+    scope: 'https://www.googleapis.com/auth/drive.file',
+    callback: () => {}
+  });
+  return tokenClient;
+}
+
+function getAccessToken() {
+  return new Promise((resolve, reject) => {
+    const client = ensureTokenClient();
+    if (!client) {
+      reject(new Error('Guardar en Drive no está configurado en este servidor: falta el Client ID de Google (ver README, sección Google Drive).'));
+      return;
+    }
+    client.callback = (resp) => {
+      if (resp.error) reject(new Error('No se pudo autorizar el acceso a Drive.'));
+      else resolve(resp.access_token);
+    };
+    client.requestAccessToken({ prompt: '' });
+  });
+}
+
+async function saveToDrive() {
+  const msg = $('exportMsg');
+  try {
+    msg.textContent = 'Preparando la imagen...';
+    const canvas = await renderGanttToCanvas(2);
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    if (!blob) { msg.textContent = 'No se pudo generar la imagen.'; return; }
+    msg.textContent = 'Pidiendo autorización de Google...';
+    const token = await getAccessToken();
+    msg.textContent = 'Subiendo a Drive...';
+    const metadata = { name: 'diagrama-gantt.png', mimeType: 'image/png' };
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', blob);
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token },
+      body: form
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error((data.error && data.error.message) || 'Google rechazó la subida.');
+    msg.innerHTML = 'Guardado en Drive: <a href="' + data.webViewLink + '" target="_blank" rel="noopener">abrir el archivo</a>';
+  } catch (e) {
+    msg.textContent = e.message;
+  }
+}
+
+$('exportPng').addEventListener('click', () => exportGanttImage('png'));
+$('exportJpg').addEventListener('click', () => exportGanttImage('jpg'));
+$('exportPdf').addEventListener('click', exportGanttPdf);
+$('saveDrive').addEventListener('click', saveToDrive);
+
+async function shareLote() {
+  const el = $('shareResult');
+  let defs;
+  try { defs = readProcs(); } catch (e) { el.textContent = e.message; return; }
+  const procs = [...tbody.rows].map(tr => {
+    const [a, c, pr, io] = [...tr.querySelectorAll('input')].map(i => i.value);
+    return [parseInt(a, 10), parseInt(c, 10), parseInt(pr, 10), io];
+  });
+  const body = { procs, algo: $('algo').value, quantum: parseInt($('quantum').value, 10) || 1, aging: parseInt($('aging').value, 10) || 0 };
+  el.textContent = 'Guardando...';
+  try {
+    const res = await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) { el.textContent = data.error || 'No se pudo guardar el lote.'; return; }
+    const url = location.origin + location.pathname + '?code=' + data.code;
+    el.innerHTML = 'Código: <b>' + data.code + '</b> — <a href="' + url + '">' + url + '</a>';
+  } catch (e) {
+    el.textContent = 'No se pudo conectar con el servidor.';
+  }
+}
+
+async function loadLote(code) {
+  const el = $('shareResult');
+  if (!code) { el.textContent = 'Escribí un código para cargar.'; return; }
+  el.textContent = 'Buscando...';
+  try {
+    const res = await fetch('/api/share/' + encodeURIComponent(code));
+    const data = await res.json();
+    if (!res.ok) { el.textContent = data.error || 'No se encontró ese lote.'; return; }
+    tbody.innerHTML = '';
+    data.procs.forEach(addRow);
+    $('algo').value = data.algo;
+    $('quantum').value = data.quantum;
+    $('aging').value = data.aging;
+    el.textContent = 'Lote cargado.';
+    run();
+  } catch (e) {
+    el.textContent = 'No se pudo conectar con el servidor.';
+  }
+}
+
+$('share').addEventListener('click', shareLote);
+$('loadBtn').addEventListener('click', () => loadLote($('loadCode').value.trim()));
+
+const urlCode = new URLSearchParams(location.search).get('code');
+if (urlCode) {
+  loadLote(urlCode);
+} else {
+  DEFAULT_PROCS.forEach(addRow);
+  $('algo').value = 'mlq-p';
+  run();
+}
+</script>
+</body>
+</html>
